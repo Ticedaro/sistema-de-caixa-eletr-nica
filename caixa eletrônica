@@ -1,0 +1,358 @@
+#include <stdio.h>
+#include <string.h>
+
+typedef enum
+{
+    CONTA_ENCERRADA,
+    CONTA_ATIVA
+} SituacaoConta;
+
+typedef struct
+{
+    long numero;
+    char titular[100];
+    char cpf[15];
+    double saldo;
+    SituacaoConta situacao;
+} Conta;
+
+FILE *arquivo;
+
+int buscarConta(FILE *f, long numeroConta, Conta *conta)
+{
+    Conta aux;
+    rewind(f);
+
+    while (fread(&aux, sizeof(Conta), 1, f))
+    {
+        if (aux.numero == numeroConta)
+        {
+            *conta = aux;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+int atualizarConta(FILE *f, const Conta *conta)
+{
+    Conta aux;
+    int posicao = 0;
+    rewind(f);
+
+    while (fread(&aux, sizeof(Conta), 1, f))
+    {
+        if (aux.numero == conta->numero)
+            break;
+        posicao = posicao + 1;
+    }
+
+    if (posicao == 0 && aux.numero != conta->numero)
+        return 0;
+
+    fseek(f, posicao * sizeof(Conta), SEEK_SET);
+    fwrite(conta, sizeof(Conta), 1, f);
+
+    return 1;
+}
+
+// cadastro de conta nova
+void cadastrarConta(void)
+{
+    Conta conta, aux;
+
+    printf("Nome do titular: ");
+    scanf(" %[^\n]", conta.titular);
+
+    printf("CPF: ");
+    scanf("%s", conta.cpf);
+
+    printf("Numero da conta: ");
+    scanf("%ld", &conta.numero);
+
+    if (buscarConta(arquivo, conta.numero, &aux) == 1)
+    {
+        printf("Ja existe conta com esse numero\n");
+        return;
+    }
+
+    conta.saldo = 0;
+    conta.situacao = CONTA_ATIVA;
+
+    fseek(arquivo, 0, SEEK_END);
+    fwrite(&conta, sizeof(Conta), 1, arquivo);
+    printf("Conta cadastrada com sucesso\n");
+}
+
+void consultarConta(void)
+{
+    Conta c;
+    long num;
+
+    printf("Digite o numero da conta: ");
+    scanf("%ld", &num);
+
+    if (buscarConta(arquivo, num, &c) == 0)
+    {
+        printf("Conta nao encontrada\n");
+    }
+    else
+    {
+        printf("\nNumero: %ld\n", c.numero);
+        printf("Titular: %s\n", c.titular);
+        printf("CPF: %s\n", c.cpf);
+        printf("Saldo: R$ %.2f\n", c.saldo);
+
+        if (c.situacao == CONTA_ATIVA)
+            printf("Situacao: ATIVA\n");
+        else
+            printf("Situacao: ENCERRADA\n");
+    }
+}
+
+int depositar(long numeroConta, double valor)
+{
+    Conta c;
+
+    if (buscarConta(arquivo, numeroConta, &c) == 0)
+    {
+        printf("Conta nao encontrada\n");
+        return 0;
+    }
+
+    if (c.situacao == CONTA_ENCERRADA)
+    {
+        printf("A conta esta encerrada\n");
+        return 0;
+    }
+
+    if (valor <= 0)
+    {
+        printf("Valor invalido\n");
+        return 0;
+    }
+
+    c.saldo = c.saldo + valor;
+    atualizarConta(arquivo, &c);
+
+    return 1;
+}
+
+int sacar(long numeroConta, double valor)
+{
+    Conta c;
+
+    if (buscarConta(arquivo, numeroConta, &c) == 0)
+    {
+        printf("Conta nao encontrada\n");
+        return 0;
+    }
+
+    if (c.situacao == CONTA_ENCERRADA)
+    {
+        printf("A conta esta encerrada\n");
+        return 0;
+    }
+
+    if (valor <= 0)
+    {
+        printf("Valor invalido\n");
+        return 0;
+    }
+
+    if (valor > c.saldo)
+    {
+        printf("Saldo insuficiente\n");
+        return 0;
+    }
+
+    c.saldo = c.saldo - valor;
+    atualizarConta(arquivo, &c);
+
+    return 1;
+}
+
+int transferir(long contaOrigem, long contaDestino, double valor)
+{
+    Conta dest;
+
+    if (contaOrigem == contaDestino)
+    {
+        printf("Nao da para transferir para a mesma conta\n");
+        return 0;
+    }
+
+    if (buscarConta(arquivo, contaDestino, &dest) == 0)
+    {
+        printf("Conta de destino nao encontrada\n");
+        return 0;
+    }
+
+    if (sacar(contaOrigem, valor) == 0)
+        return 0;
+
+    if (depositar(contaDestino, valor) == 0)
+    {
+        printf("Erro no destino, devolvendo o valor\n");
+        depositar(contaOrigem, valor);
+        return 0;
+    }
+
+    return 1;
+}
+
+void listarContas(void)
+{
+    Conta c;
+    int qtd = 0;
+
+    rewind(arquivo);
+
+    while (fread(&c, sizeof(Conta), 1, arquivo))
+    {
+        printf("\nNumero: %ld\n", c.numero);
+        printf("Titular: %s\n", c.titular);
+        printf("CPF: %s\n", c.cpf);
+        printf("Saldo: R$ %.2f\n", c.saldo);
+
+        if (c.situacao == CONTA_ATIVA)
+            printf("Situacao: ATIVA\n");
+        else
+            printf("Situacao: ENCERRADA\n");
+
+        qtd++;
+    }
+
+    if (qtd == 0)
+        printf("Nenhuma conta cadastrada\n");
+}
+
+int encerrarConta(long numeroConta)
+{
+    Conta c;
+
+    if (buscarConta(arquivo, numeroConta, &c) == 0)
+    {
+        printf("Conta nao encontrada\n");
+        return 0;
+    }
+
+    if (c.situacao == CONTA_ENCERRADA)
+    {
+        printf("Conta ja encerrada\n");
+        return 0;
+    }
+
+    if (c.saldo != 0)
+    {
+        printf("Para encerrar o saldo tem que ser 0\n");
+        return 0;
+    }
+
+    c.situacao = CONTA_ENCERRADA;
+    atualizarConta(arquivo, &c);
+
+    return 1;
+}
+
+int main()
+{
+    int op;
+    long num, orig, dest;
+    double val;
+
+    arquivo = fopen("contas.dat", "r+b");
+
+    if (arquivo == NULL)
+    {
+        arquivo = fopen("contas.dat", "w+b");
+        if (arquivo == NULL)
+        {
+            printf("Erro ao abrir o arquivo\n");
+            return 1;
+        }
+    }
+
+    do
+    {
+        printf("\n===== CAIXA ELETRONICO =====\n");
+        printf("1 - Cadastrar conta\n");
+        printf("2 - Consultar conta\n");
+        printf("3 - Deposito\n");
+        printf("4 - Saque\n");
+        printf("5 - Transferencia\n");
+        printf("6 - Listar contas\n");
+        printf("7 - Encerrar conta\n");
+        printf("0 - Sair\n");
+        printf("Opcao: ");
+        scanf("%d", &op);
+
+        switch (op)
+        {
+        case 1:
+            cadastrarConta();
+            break;
+
+        case 2:
+            consultarConta();
+            break;
+
+        case 3:
+            printf("Numero da conta: ");
+            scanf("%ld", &num);
+            printf("Valor: ");
+            scanf("%lf", &val);
+
+            if (depositar(num, val))
+                printf("Deposito ok\n");
+            break;
+
+        case 4:
+            printf("Numero da conta: ");
+            scanf("%ld", &num);
+            printf("Valor: ");
+            scanf("%lf", &val);
+
+            if (sacar(num, val))
+                printf("Saque ok\n");
+            break;
+
+        case 5:
+            printf("Conta origem: ");
+            scanf("%ld", &orig);
+            printf("Conta destino: ");
+            scanf("%ld", &dest);
+            printf("Valor: ");
+            scanf("%lf", &val);
+
+            if (transferir(orig, dest, val))
+                printf("Transferencia ok\n");
+            break;
+
+        case 6:
+            listarContas();
+            break;
+
+        case 7:
+            printf("Numero da conta: ");
+            scanf("%ld", &num);
+
+            if (encerrarConta(num))
+                printf("Conta encerrada\n");
+            break;
+
+        case 0:
+            printf("Fechando o programa...\n");
+            break;
+
+        default:
+            printf("Opcao invalida\n");
+        }
+
+    } while (op != 0);
+
+    fclose(arquivo);
+
+    return 0;
+}
